@@ -96,37 +96,37 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
   while ((c = getc(fin)) != EOF) {
     switch (s) {
       case LINE_START:
-	if (isdigit(c)) {
-	  s = LINE_NUMBER;
-	  ibuf[b++] = c;
-	} else if (!isspace(c)) {
-	  fputs(errSyntLineNum, stderr);
-	  fprintf(stderr, errPos, l, x);
-	  return -1;
-	}
-	break;
+        if (isdigit(c)) {
+          s = LINE_NUMBER;
+          ibuf[b++] = c;
+        } else if (!isspace(c)) {
+          fputs(errSyntLineNum, stderr);
+          fprintf(stderr, errPos, l, x);
+          return -1;
+        }
+        break;
 
       case LINE_NUMBER:
-	if (isdigit(c)) {
-	  ibuf[b++] = c;
-	} else if (isspace(c)) {
-	  sscanf(ibuf, "%d", &n);
-	  obuf[p++] = n & 0xFF;
-	  obuf[p++] = (n / 0x100) & 0xFF;
-	  clearBuf(ibuf);
-	  b = 0;
-	  s = COMMAND_EXPECTED;
-	} else {
-	  fputs(errSyntLineNum, stderr);
-	  fprintf(stderr, errPos, l, x);
-	  return -1;
-	}
-	break;
+        if (isdigit(c)) {
+          ibuf[b++] = c;
+        } else if (isspace(c)) {
+          sscanf(ibuf, "%d", &n);
+          obuf[p++] = n & 0xFF;
+          obuf[p++] = (n / 0x100) & 0xFF;
+          clearBuf(ibuf);
+          b = 0;
+          s = COMMAND_EXPECTED;
+        } else {
+          fputs(errSyntLineNum, stderr);
+          fprintf(stderr, errPos, l, x);
+          return -1;
+        }
+        break;
 
       default:
-	fputs(errProg, stderr);
-	return -1;
-	break;
+        fputs(errProg, stderr);
+        return -1;
+        break;
     }
 
     // line counting
@@ -173,7 +173,7 @@ void process(char *name, FILE *fin, FILE *fout)
 
     if (LINE_START == p) {
       if ('U' == c) {
-	break;
+        break;
       }
 
       lineNo = c * 256 + getc(fin);
@@ -224,8 +224,8 @@ int main(int ac, char **argv)
       fin = fopen(argv[2], "r");
 
       if (NULL == fin) {
-	fprintf(stderr, errIn, argv[2]);
-	return 2;
+        fprintf(stderr, errIn, argv[2]);
+        return 2;
       }
 
       process(argv[1], fin, stdout);
@@ -236,15 +236,15 @@ int main(int ac, char **argv)
       fin = fopen(argv[2], "r");
 
       if (NULL == fin) {
-	fprintf(stderr, errIn, argv[2]);
-	return 2;
+        fprintf(stderr, errIn, argv[2]);
+        return 2;
       }
 
       fout = fopen(argv[3], "w");
 
       if (NULL == fout) {
-	fprintf(stderr, errOut, argv[3]);
-	return 3;
+        fprintf(stderr, errOut, argv[3]);
+        return 3;
       }
 
       process(argv[1], fin, fout);
