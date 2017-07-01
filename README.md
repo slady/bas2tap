@@ -1,2 +1,2 @@
 # bas2tap
-Sinclair ZX Spectrum Basic convertor to a Tape file
+Sinclair ZX Spectrum Basic converter to a Tape file
