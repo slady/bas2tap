@@ -23,7 +23,7 @@ const char *COMMAND_LIST[] = { "RND", "INKEY$", "PI", "FN", "POINT", "SCREEN$", 
 // changed key words:
 // "DEF FN", "OPEN #", "CLOSE #", "GO TO", "GO SUB"
 
-typedef enum { LINE_START, LINE_NUMBER, COMMAND_EXPECTED, OK } state;
+typedef enum { LINE_START, LINE_NUMBER, COMMAND_EXPECTED, SINGLE_LINE_COMMENT, OK } state;
 
 void writeByte(const int value, int *checksumPointer, FILE *fout)
 {
@@ -60,8 +60,9 @@ void writeFile(const int size, const char *name, const char *buf, FILE *fout)
   writeDoubleByte(0x8000, &checksum, fout);
   writeDoubleByte(size, &checksum, fout);
   writeByte(checksum, &checksum, fout);
+  // the header ends here
 
-  // writing data packet, because the header ended
+  // writing data packet
   writeDoubleByte(size + 2, &checksum, fout);
   checksum = 0;
   writeByte(0xFF, &checksum, fout);
@@ -94,16 +95,28 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
   clearBuf(ibuf);
 
   while ((c = getc(fin)) != EOF) {
+    //fprintf(stderr, "state %d\n", s);
     switch (s) {
       case LINE_START:
         if (isdigit(c)) {
           s = LINE_NUMBER;
           ibuf[b++] = c;
+        } else if (';' == c) {
+          s = SINGLE_LINE_COMMENT;
         } else if (!isspace(c)) {
           fputs(errSyntLineNum, stderr);
           fprintf(stderr, errPos, l, x);
           return -1;
         }
+        break;
+
+      case SINGLE_LINE_COMMENT:
+        if (c == '\n') {
+          s = LINE_START;
+        }
+        // do nothing at all..
+        // stop chasing shadows,
+        // just enjoy the ride!
         break;
 
       case LINE_NUMBER:
