@@ -22,8 +22,11 @@ const char *COMMAND_LIST[] = { "RND", "INKEY$", "PI", "FN", "POINT", "SCREEN$", 
   "LIST", "LET", "PAUSE", "NEXT", "POKE", "PRINT", "PLOT", "RUN", "SAVE", "RANDOMIZE", "IF", "CLS", "DRAW", "CLEAR", "RETURN", "COPY" };
 // changed key words:
 // "DEF FN", "OPEN #", "CLOSE #", "GO TO", "GO SUB"
+const int COMMAND_LIST_SIZE = (sizeof(COMMAND_LIST) / sizeof(COMMAND_LIST[0]));
 
-typedef enum { LINE_START, LINE_NUMBER, COMMAND_EXPECTED, SINGLE_LINE_COMMENT, OK } state;
+typedef enum { LINE_START, LINE_NUMBER, COMMAND_EXPECTED,
+    READING_STRING, READING_COMMAND, READING_NUMBER, READING_NUMBER_DECIMAL,
+    SINGLE_LINE_COMMENT } state;
 
 void writeByte(const int value, int *checksumPointer, FILE *fout)
 {
@@ -88,14 +91,16 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
   // l - line reading position in the input file
   // x - column reading position in the input file
   // n - a number being read from the input file
-  int c, p = 0, b = 0, l = 1, x = 1, n;
+  // r - remember where to put the last line length into the obuf output buffer
+  int c, p = 0, b = 0, l = 1, x = 1, n, r = -1;
   // s - reading state
   state s = LINE_START;
 
   clearBuf(ibuf);
 
-  while ((c = getc(fin)) != EOF) {
-    //fprintf(stderr, "state %d\n", s);
+  do {
+    c = getc(fin);
+
     switch (s) {
       case LINE_START:
         if (isdigit(c)) {
@@ -103,7 +108,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           ibuf[b++] = c;
         } else if (';' == c) {
           s = SINGLE_LINE_COMMENT;
-        } else if (!isspace(c)) {
+        } else if (!isspace(c) && (c != EOF)) {
           fputs(errSyntLineNum, stderr);
           fprintf(stderr, errPos, l, x);
           return -1;
@@ -124,8 +129,10 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           ibuf[b++] = c;
         } else if (isspace(c)) {
           sscanf(ibuf, "%d", &n);
-          obuf[p++] = n & 0xFF;
           obuf[p++] = (n / 0x100) & 0xFF;
+          obuf[p++] = n & 0xFF;
+          r = p;
+          p += 2;
           clearBuf(ibuf);
           b = 0;
           s = COMMAND_EXPECTED;
@@ -133,6 +140,106 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           fputs(errSyntLineNum, stderr);
           fprintf(stderr, errPos, l, x);
           return -1;
+        }
+        break;
+
+      case COMMAND_EXPECTED:
+        if (isdigit(c)) {
+          s = READING_NUMBER;
+          ibuf[b++] = c;
+        } else if (isalpha(c)) {
+          s = READING_COMMAND;
+          ibuf[b++] = c;
+        } else if (c == '"') {
+          s = READING_STRING;
+          obuf[p++] = c;
+        } else if (c == '\n' || c == EOF) {
+          if (r >= 0) {
+            obuf[p++] = 0x0D;
+            n = p - r - 2;
+            obuf[r++] = n & 0xFF;
+            obuf[r++] = (n / 0x100) & 0xFF;
+            r = -1;
+          }
+          s = LINE_START;
+        } else if (!isspace(c)) {
+          obuf[p++] = c;
+        }
+        break;
+
+      case READING_STRING:
+        obuf[p++] = c;
+
+        if (c == '"') {
+          s = COMMAND_EXPECTED;
+        }
+        break;
+
+      case READING_NUMBER:
+        if (c == '.') {
+          s = READING_NUMBER_DECIMAL;
+          ibuf[b++] = c;
+        } else if (isdigit(c)) {
+          ibuf[b++] = c;
+        } else {
+          for (int i = 0; i < b; i++) {
+            obuf[p++] = ibuf[i];
+          }
+
+          sscanf(ibuf, "%d", &n);
+          obuf[p++] = 0x0E;
+          obuf[p++] = 0;
+          obuf[p++] = 0;
+          obuf[p++] = n & 0xFF;
+          obuf[p++] = (n / 0x100) & 0xFF;
+          obuf[p++] = 0;
+
+          if (c == EOF) {
+            break;
+          }
+
+          clearBuf(ibuf);
+          b = 0;
+
+          ungetc(c, fin);
+          s = COMMAND_EXPECTED;
+          continue;
+        }
+        break;
+
+      case READING_NUMBER_DECIMAL:
+        break;
+
+      case READING_COMMAND:
+        if (isalpha(c)) {
+          ibuf[b++] = c;
+        } else {
+          int f = -1;
+
+          for (int i = 0; i < COMMAND_LIST_SIZE; i++) {
+            if (strcasecmp(ibuf, COMMAND_LIST[i]) == 0) {
+              obuf[p++] = FIRST_COMMAND + i;
+              f = i;
+              break;
+            }
+          }
+
+          if (f < 0) {
+            for (int i = 0; i < b; i++) {
+              obuf[p++] = ibuf[i];
+            }
+          }
+
+          if (c == EOF) {
+            break;
+          }
+
+          clearBuf(ibuf);
+          b = 0;
+
+          ungetc(c, fin);
+          s = COMMAND_EXPECTED;
+          continue;
         }
         break;
 
@@ -149,6 +256,13 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
     } else {
       x++;
     }
+  } while (c != EOF);
+
+  if (r >= 0) {
+    obuf[p++] = 0x0D;
+    n = p - r - 2;
+    obuf[r++] = n & 0xFF;
+    obuf[r++] = (n / 0x100) & 0xFF;
   }
 
   return p;
@@ -181,47 +295,6 @@ void process(char *name, FILE *fin, FILE *fout)
   }
 
   free(obuf);
-/*
-  if (1 + 1 > 0) return;
-
-    if (LINE_START == p) {
-      if ('U' == c) {
-        break;
-      }
-
-      lineNo = c * 256 + getc(fin);
-      fprintf(fout, "%5d", lineNo);
-      // lineLen
-      getc(fin);
-      getc(fin);
-      p = LINE_READ;
-      continue;
-    }
-
-    if (0x0D == c) {
-      // new command line
-      fputs("\n", fout);
-      p = LINE_START;
-    } else if (0x0E == c) {
-      // read number and throw it away
-      getc(fin);
-      getc(fin);
-      getc(fin);
-      getc(fin);
-      getc(fin);
-    } else if (c < ' ') {
-      esc(c, fout);
-    } else if (c < '~') {
-      //writeByte(c, fout);
-    } else if (c < FIRST_COMMAND) {
-      esc(c, fout);
-    } else {
-      //writeByte('\n', fout);
-      //writeByte(' ', fout);
-      //fputs(COMMAND_LIST[c - FIRST_COMMAND], fout);
-      //writeByte(' ', fout);
-    }
-  }*/
 }
 
 int main(int ac, char **argv)
