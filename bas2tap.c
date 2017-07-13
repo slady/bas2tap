@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <math.h>
 
 const int IN_BUFFER_SIZE = 1024;
 const int OUT_BUFFER_SIZE = 0x10000;
@@ -23,6 +24,9 @@ const char *COMMAND_LIST[] = { "RND", "INKEY$", "PI", "FN", "POINT", "SCREEN$", 
 // changed key words:
 // "DEF FN", "OPEN #", "CLOSE #", "GO TO", "GO SUB"
 const int COMMAND_LIST_SIZE = (sizeof(COMMAND_LIST) / sizeof(COMMAND_LIST[0]));
+
+const int ZX_FLOAT_MANTISSA_BASE = 128;
+const float ZX_FLOAT_SIGN_FIX = .5;
 
 typedef enum { LINE_START, LINE_NUMBER, COMMAND_EXPECTED,
     READING_STRING, READING_COMMAND, READING_NUMBER, READING_NUMBER_DECIMAL,
@@ -93,6 +97,8 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
   // n - a number being read from the input file
   // r - remember where to put the last line length into the obuf output buffer
   int c, p = 0, b = 0, l = 1, x = 1, n, r = -1;
+  // f - a floating point number being read from the input file
+  float f;
   // s - reading state
   state s = LINE_START;
 
@@ -147,6 +153,11 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
         if (isdigit(c)) {
           s = READING_NUMBER;
           ibuf[b++] = c;
+          obuf[p++] = c;
+        } else if (c == '.') {
+          s = READING_NUMBER_DECIMAL;
+          ibuf[b++] = c;
+          obuf[p++] = c;
         } else if (isalpha(c)) {
           s = READING_COMMAND;
           ibuf[b++] = c;
@@ -176,16 +187,14 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
         break;
 
       case READING_NUMBER:
-        if (c == '.') {
+        if (c == '.' || tolower(c) == 'e') {
           s = READING_NUMBER_DECIMAL;
           ibuf[b++] = c;
+          obuf[p++] = c;
         } else if (isdigit(c)) {
           ibuf[b++] = c;
+          obuf[p++] = c;
         } else {
-          for (int i = 0; i < b; i++) {
-            obuf[p++] = ibuf[i];
-          }
-
           sscanf(ibuf, "%d", &n);
           obuf[p++] = 0x0E;
           obuf[p++] = 0;
@@ -208,7 +217,49 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
         break;
 
       case READING_NUMBER_DECIMAL:
-        break;
+        if (isdigit(c) || tolower(c) == 'e') {
+          ibuf[b++] = c;
+          obuf[p++] = c;
+        } else {
+          sscanf(ibuf, "%f", &f);
+          f = frexpf(f, &n);
+
+          n += ZX_FLOAT_MANTISSA_BASE;
+
+          if (f >= ZX_FLOAT_SIGN_FIX) {
+            f -= ZX_FLOAT_SIGN_FIX;
+          }
+
+          obuf[p++] = 0x0E;
+          obuf[p++] = n & 0xFF;
+
+          for (int i = 0; i < 4; i++) {
+            n = 0;
+
+            for (int j = 0; j < 8; j++) {
+              n <<= 1;
+              f *= 2;
+
+              if (f >= 1) {
+                f -= 1;
+                n |= 1;
+              }
+            }
+            obuf[p++] = n & 0xFF;
+          }
+
+          if (c == EOF) {
+            break;
+          }
+
+          clearBuf(ibuf);
+          b = 0;
+
+          ungetc(c, fin);
+          s = COMMAND_EXPECTED;
+          continue;
+        }
+      break;
 
       case READING_COMMAND:
         if (isalpha(c)) {
