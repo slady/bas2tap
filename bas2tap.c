@@ -28,7 +28,7 @@ const int COMMAND_LIST_SIZE = (sizeof(COMMAND_LIST) / sizeof(COMMAND_LIST[0]));
 const int ZX_FLOAT_MANTISSA_BASE = 128;
 const float ZX_FLOAT_SIGN_FIX = .5;
 
-typedef enum { LINE_START, LINE_NUMBER, COMMAND_EXPECTED,
+typedef enum { FIRST_LINE_START, NEXT_LINE_START, LINE_NUMBER, COMMAND_EXPECTED,
     READING_STRING, READING_COMMAND, READING_NUMBER, READING_NUMBER_DECIMAL,
     SINGLE_LINE_COMMENT } state;
 
@@ -100,7 +100,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
   // f - a floating point number being read from the input file
   float f;
   // s - reading state
-  state s = LINE_START;
+  state s = FIRST_LINE_START;
 
   clearBuf(ibuf);
 
@@ -108,7 +108,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
     c = getc(fin);
 
     switch (s) {
-      case LINE_START:
+      case FIRST_LINE_START:
         if (isdigit(c)) {
           s = LINE_NUMBER;
           ibuf[b++] = c;
@@ -121,9 +121,38 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
         }
         break;
 
+      case NEXT_LINE_START:
+        if (isdigit(c) || c == ';') {
+          if (r >= 0) { \
+            obuf[p++] = 0x0D; \
+            n = p - r - 2; \
+            obuf[r++] = n & 0xFF; \
+            obuf[r++] = (n / 0x100) & 0xFF; \
+            r = -1; \
+          }
+
+          if (isdigit(c)) {
+            s = LINE_NUMBER;
+            ibuf[b++] = c;
+          } else if (';' == c) {
+            s = SINGLE_LINE_COMMENT;
+          }
+        } else if (isalpha(c)) {
+          s = READING_COMMAND;
+          ibuf[b++] = c;
+        } else if (c == '"') {
+          s = READING_STRING;
+          obuf[p++] = c;
+        } else if (!isspace(c) && (c != EOF)) {
+          fputs(errSyntLineNum, stderr);
+          fprintf(stderr, errPos, l, x);
+          return -1;
+        }
+        break;
+
       case SINGLE_LINE_COMMENT:
         if (c == '\n') {
-          s = LINE_START;
+          s = FIRST_LINE_START;
         }
         // do nothing at all..
         // stop chasing shadows,
@@ -165,14 +194,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           s = READING_STRING;
           obuf[p++] = c;
         } else if (c == '\n' || c == EOF) {
-          if (r >= 0) {
-            obuf[p++] = 0x0D;
-            n = p - r - 2;
-            obuf[r++] = n & 0xFF;
-            obuf[r++] = (n / 0x100) & 0xFF;
-            r = -1;
-          }
-          s = LINE_START;
+          s = NEXT_LINE_START;
         } else if (!isspace(c)) {
           obuf[p++] = c;
         }
