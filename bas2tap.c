@@ -30,7 +30,7 @@ const float ZX_FLOAT_SIGN_FIX = .5;
 
 typedef enum { FIRST_LINE_START, NEXT_LINE_START, LINE_NUMBER, COMMAND_EXPECTED,
     READING_STRING, READING_COMMAND, READING_NUMBER, READING_NUMBER_DECIMAL,
-    SINGLE_LINE_COMMENT } state;
+    SYMBOL_PREFIX, COMMAND_PREFIX, SINGLE_LINE_COMMENT } state;
 
 void writeByte(const int value, int *checksumPointer, FILE *fout)
 {
@@ -193,6 +193,9 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
         } else if (c == '"') {
           s = READING_STRING;
           obuf[p++] = c;
+        } else if (c == '<' || c == '>') {
+          s = SYMBOL_PREFIX;
+          ibuf[b++] = c;
         } else if (c == '\n' || c == EOF) {
           s = NEXT_LINE_START;
         } else if (!isspace(c)) {
@@ -206,6 +209,33 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
         if (c == '"') {
           s = COMMAND_EXPECTED;
         }
+        break;
+
+      case SYMBOL_PREFIX:
+        {
+          int f = -1;
+
+          if (ibuf[0] == '<' && c == '=') {
+            f = 199;
+          } else if (ibuf[0] == '>' && c == '=') {
+            f = 200;
+          } else if (ibuf[0] == '<' && c == '>') {
+            f = 201;
+          }
+
+          if (f < 0) {
+            obuf[p++] = ibuf[0];
+            ungetc(c, fin);
+          } else {
+            obuf[p++] = f;
+          }
+
+          s = COMMAND_EXPECTED;
+
+          clearBuf(ibuf);
+          b = 0;
+        }
+
         break;
 
       case READING_NUMBER:
