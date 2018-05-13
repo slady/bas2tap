@@ -19,7 +19,7 @@ const char *COMMAND_LIST[] = { "RND", "INKEY$", "PI", "FN", "POINT", "SCREEN$", 
   "VAL", "LEN", "SIN", "COS", "TAN", "ASN", "ACS", "ATN", "LN", "EXP", "INT", "SQR", "SGN", "ABS", "PEEK", "IN",
   "USR", "STR$", "CHR$", "NOT", "BIN", "OR", "AND", "<=", ">=", "<>", "LINE", "THEN", "TO", "STEP", "DEFFN", "CAT",
   "FORMAT", "MOVE", "ERASE", "OPEN#", "CLOSE#", "MERGE", "VERIFY", "BEEP", "CIRCLE", "INK", "PAPER", "FLASH", "BRIGHT", "INVERSE", "OVER", "OUT",
-  "LPRINT", "LLIST", "STOP", "READ", "DATA", "RESTORE", "NEW", "BORDER", "CONTINUE", "DIM", "REM", "FOR", "GOTO", "GOSUB", "INPUT", "LOAD",
+  "LPRINT", "LLIST", "STOP", "READ", "DATA", "RESTORE", "NEW", "BORDER", "CONTINUE", "DIM", "REM", "FOR", "GO TO", "GO SUB", "INPUT", "LOAD",
   "LIST", "LET", "PAUSE", "NEXT", "POKE", "PRINT", "PLOT", "RUN", "SAVE", "RANDOMIZE", "IF", "CLS", "DRAW", "CLEAR", "RETURN", "COPY" };
 // changed key words:
 // "DEF FN", "OPEN #", "CLOSE #", "GO TO", "GO SUB"
@@ -314,7 +314,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
       break;
 
       case READING_COMMAND:
-        if (isalpha(c)) {
+        if (isalpha(c) || (c == ' ' && strcasecmp(ibuf, "GO") == 0)) {
           ibuf[b++] = c;
         } else {
           int f = -1;
