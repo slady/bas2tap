@@ -28,6 +28,11 @@ const int COMMAND_LIST_SIZE = (sizeof(COMMAND_LIST) / sizeof(COMMAND_LIST[0]));
 const int ZX_FLOAT_MANTISSA_BASE = 128;
 const float ZX_FLOAT_SIGN_FIX = .5;
 
+const int COMMAND_CODE_BIN = 196;
+const int COMMAND_CODE_LE = 199;
+const int COMMAND_CODE_GE = 200;
+const int COMMAND_CODE_NE = 201;
+
 typedef enum { FIRST_LINE_START, NEXT_LINE_START, LINE_NUMBER, COMMAND_EXPECTED,
     READING_STRING, READING_COMMAND, READING_NUMBER, READING_NUMBER_DECIMAL,
     SYMBOL_PREFIX, COMMAND_PREFIX, SINGLE_LINE_COMMENT } state;
@@ -96,7 +101,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
   // x - column reading position in the input file
   // n - a number being read from the input file
   // r - remember where to put the last line length into the obuf output buffer
-  int c, p = 0, b = 0, l = 1, x = 1, n, r = -1;
+  int c, p = 0, b = 0, l = 1, x = 1, n, r = -1, isBinNumber = 0;
   // f - a floating point number being read from the input file
   float f;
   // s - reading state
@@ -216,11 +221,11 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           int f = -1;
 
           if (ibuf[0] == '<' && c == '=') {
-            f = 199;
+            f = COMMAND_CODE_LE;
           } else if (ibuf[0] == '>' && c == '=') {
-            f = 200;
+            f = COMMAND_CODE_GE;
           } else if (ibuf[0] == '<' && c == '>') {
-            f = 201;
+            f = COMMAND_CODE_NE;
           }
 
           if (f < 0) {
@@ -247,7 +252,13 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           ibuf[b++] = c;
           obuf[p++] = c;
         } else {
-          sscanf(ibuf, "%d", &n);
+          if (isBinNumber) {
+            n = (int) strtol(ibuf, NULL, 2);
+            isBinNumber = 0;
+          } else {
+            sscanf(ibuf, "%d", &n);
+          }
+
           obuf[p++] = 0x0E;
           obuf[p++] = 0;
           obuf[p++] = 0;
@@ -321,8 +332,8 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
 
           for (int i = 0; i < COMMAND_LIST_SIZE; i++) {
             if (strcasecmp(ibuf, COMMAND_LIST[i]) == 0) {
-              obuf[p++] = FIRST_COMMAND + i;
-              f = i;
+              f = FIRST_COMMAND + i;
+              obuf[p++] = f;
               break;
             }
           }
@@ -341,7 +352,13 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           b = 0;
 
           ungetc(c, fin);
+
+          if (f == COMMAND_CODE_BIN) {
+            isBinNumber = 1;
+          }
+
           s = COMMAND_EXPECTED;
+
           continue;
         }
         break;
