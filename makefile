@@ -6,14 +6,17 @@ CFLAGS=-Wall
 
 all: bas2tap
 
-bas2tap: bas2tap.o
-	$(CC) bas2tap.o -o bas2tap
+bas2tap: bas2tap.o bufs.o
+	$(CC) bas2tap.o bufs.o -o bas2tap
 
 bas2tap.o: bas2tap.c
 	$(CC) $(CFLAGS) -c bas2tap.c -o bas2tap.o
 
+bufs.o: bufs.c
+	$(CC) $(CFLAGS) -c bufs.c -o bufs.o
+
 clean:
-	rm -f bas2tap.o bas2tap
+	rm -f bufs.o bas2tap.o bas2tap
 
 all-tests := $(addsuffix .test, $(basename $(wildcard test/*.tap)))
 

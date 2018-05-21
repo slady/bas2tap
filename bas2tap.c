@@ -4,8 +4,7 @@
 #include <ctype.h>
 #include <math.h>
 
-const int IN_BUFFER_SIZE = 1024;
-const int OUT_BUFFER_SIZE = 0x10000;
+#include "bufs.h"
 
 const char *errIn = "Cannot open input file: %s\n";
 const char *errOut = "Cannot open output file: %s\n";
@@ -87,70 +86,56 @@ void writeFile(const int size, const char *name, const char *buf, FILE *fout)
   writeByte(checksum, &checksum, fout);
 }
 
-void clearBuf(char *ibuf)
-{
-  memset(ibuf, 0, IN_BUFFER_SIZE);
-}
-
-int parseFile(FILE *fin, char *obuf, char *ibuf)
+int parseFile(void)
 {
   // c - character read from the input file
-  // p - position in obuf
-  // b - position in ibuf
-  // l - line reading position in the input file
-  // x - column reading position in the input file
-  // n - a number being read from the input file
-  // r - remember where to put the last line length into the obuf output buffer
-  int c, p = 0, b = 0, l = 1, x = 1, n, r = -1, isBinNumber = 0;
+  // line - line reading position in the input file
+  // column - column reading position in the input file
+  // number - a number being read from the input file
+  int c, line = 1, column = 1, number, isBinNumber = 0;
   // f - a floating point number being read from the input file
   float f;
   // s - reading state
   state s = FIRST_LINE_START;
 
-  clearBuf(ibuf);
+  clearIBuf();
 
   do {
-    c = getc(fin);
+    c = getIC();
 
     switch (s) {
       case FIRST_LINE_START:
         if (isdigit(c)) {
           s = LINE_NUMBER;
-          ibuf[b++] = c;
+          addInC();
         } else if (';' == c) {
           s = SINGLE_LINE_COMMENT;
         } else if (!isspace(c) && (c != EOF)) {
           fputs(errSyntLineNum, stderr);
-          fprintf(stderr, errPos, l, x);
+          fprintf(stderr, errPos, line, column);
           return -1;
         }
         break;
 
       case NEXT_LINE_START:
         if (isdigit(c) || c == ';') {
-          if (r >= 0) { \
-            obuf[p++] = 0x0D; \
-            n = p - r - 2; \
-            obuf[r++] = n & 0xFF; \
-            obuf[r++] = (n / 0x100) & 0xFF; \
-            r = -1; \
-          }
+          writeLineLength();
 
           if (isdigit(c)) {
             s = LINE_NUMBER;
-            ibuf[b++] = c;
+            addInC();
           } else if (';' == c) {
             s = SINGLE_LINE_COMMENT;
           }
         } else if (isalpha(c)) {
           s = READING_COMMAND;
-          ibuf[b++] = c;
+          addInC();
         } else if (c == '"') {
           s = READING_STRING;
-          obuf[p++] = c;
+          addOutC();
         } else if (!isspace(c) && (c != EOF)) {
           fputs(errSyntLineNum, stderr);
-          fprintf(stderr, errPos, l, x);
+          fprintf(stderr, errPos, line, column);
           return -1;
         }
         break;
@@ -166,19 +151,17 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
 
       case LINE_NUMBER:
         if (isdigit(c)) {
-          ibuf[b++] = c;
+          addInC();
         } else if (isspace(c)) {
-          sscanf(ibuf, "%d", &n);
-          obuf[p++] = (n / 0x100) & 0xFF;
-          obuf[p++] = n & 0xFF;
-          r = p;
-          p += 2;
-          clearBuf(ibuf);
-          b = 0;
+          sscanf(getIBuf(), "%d", &number);
+          addOutCh((number / 0x100) & 0xFF);
+          addOutCh(number & 0xFF);
+          markLineLength();
+          clearIBuf();
           s = COMMAND_EXPECTED;
         } else {
           fputs(errSyntLineNum, stderr);
-          fprintf(stderr, errPos, l, x);
+          fprintf(stderr, errPos, line, column);
           return -1;
         }
         break;
@@ -186,30 +169,30 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
       case COMMAND_EXPECTED:
         if (isdigit(c)) {
           s = READING_NUMBER;
-          ibuf[b++] = c;
-          obuf[p++] = c;
+          addInC();
+          addOutC();
         } else if (c == '.') {
           s = READING_NUMBER_DECIMAL;
-          ibuf[b++] = c;
-          obuf[p++] = c;
+          addInC();
+          addOutC();
         } else if (isalpha(c)) {
           s = READING_COMMAND;
-          ibuf[b++] = c;
+          addInC();
         } else if (c == '"') {
           s = READING_STRING;
-          obuf[p++] = c;
+          addOutC();
         } else if (c == '<' || c == '>') {
           s = SYMBOL_PREFIX;
-          ibuf[b++] = c;
+          addInC();
         } else if (c == '\n' || c == EOF) {
           s = NEXT_LINE_START;
         } else if (!isspace(c)) {
-          obuf[p++] = c;
+          addOutC();
         }
         break;
 
       case READING_STRING:
-        obuf[p++] = c;
+        addOutC();
 
         if (c == '"') {
           s = COMMAND_EXPECTED;
@@ -219,6 +202,7 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
       case SYMBOL_PREFIX:
         {
           int f = -1;
+          char *ibuf = getIBuf();
 
           if (ibuf[0] == '<' && c == '=') {
             f = COMMAND_CODE_LE;
@@ -229,16 +213,15 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
           }
 
           if (f < 0) {
-            obuf[p++] = ibuf[0];
-            ungetc(c, fin);
+            copyInToOut();
+            ungetC();
           } else {
-            obuf[p++] = f;
+            addOutCh(f);
           }
 
           s = COMMAND_EXPECTED;
 
-          clearBuf(ibuf);
-          b = 0;
+          clearIBuf();
         }
 
         break;
@@ -246,34 +229,33 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
       case READING_NUMBER:
         if (c == '.' || tolower(c) == 'e') {
           s = READING_NUMBER_DECIMAL;
-          ibuf[b++] = c;
-          obuf[p++] = c;
+          addInC();
+          addOutC();
         } else if (isdigit(c)) {
-          ibuf[b++] = c;
-          obuf[p++] = c;
+          addInC();
+          addOutC();
         } else {
           if (isBinNumber) {
-            n = (int) strtol(ibuf, NULL, 2);
+            number = (int) strtol(getIBuf(), NULL, 2);
             isBinNumber = 0;
           } else {
-            sscanf(ibuf, "%d", &n);
+            sscanf(getIBuf(), "%d", &number);
           }
 
-          obuf[p++] = 0x0E;
-          obuf[p++] = 0;
-          obuf[p++] = 0;
-          obuf[p++] = n & 0xFF;
-          obuf[p++] = (n / 0x100) & 0xFF;
-          obuf[p++] = 0;
+          addOutCh(0x0E);
+          addOutCh(0);
+          addOutCh(0);
+          addOutCh(number & 0xFF);
+          addOutCh((number / 0x100) & 0xFF);
+          addOutCh(0);
 
           if (c == EOF) {
             break;
           }
 
-          clearBuf(ibuf);
-          b = 0;
+          clearIBuf();
 
-          ungetc(c, fin);
+          ungetC();
           s = COMMAND_EXPECTED;
           continue;
         }
@@ -281,77 +263,73 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
 
       case READING_NUMBER_DECIMAL:
         if (isdigit(c) || tolower(c) == 'e') {
-          ibuf[b++] = c;
-          obuf[p++] = c;
+          addInC();
+          addOutC();
         } else {
-          sscanf(ibuf, "%f", &f);
-          f = frexpf(f, &n);
+          sscanf(getIBuf(), "%f", &f);
+          f = frexpf(f, &number);
 
-          n += ZX_FLOAT_MANTISSA_BASE;
+          number += ZX_FLOAT_MANTISSA_BASE;
 
           if (f >= ZX_FLOAT_SIGN_FIX) {
             f -= ZX_FLOAT_SIGN_FIX;
           }
 
-          obuf[p++] = 0x0E;
-          obuf[p++] = n & 0xFF;
+          addOutCh(0x0E);
+          addOutCh(number & 0xFF);
 
           for (int i = 0; i < 4; i++) {
-            n = 0;
+            number = 0;
 
             for (int j = 0; j < 8; j++) {
-              n <<= 1;
+              number <<= 1;
               f *= 2;
 
               if (f >= 1) {
                 f -= 1;
-                n |= 1;
+                number |= 1;
               }
             }
-            obuf[p++] = n & 0xFF;
+            addOutCh(number & 0xFF);
           }
 
           if (c == EOF) {
             break;
           }
 
-          clearBuf(ibuf);
-          b = 0;
+          clearIBuf();
 
-          ungetc(c, fin);
+          ungetC();
           s = COMMAND_EXPECTED;
           continue;
         }
       break;
 
       case READING_COMMAND:
-        if (isalpha(c) || (c == ' ' && strcasecmp(ibuf, "GO") == 0)) {
-          ibuf[b++] = c;
+        if (isalpha(c) || (c == ' ' && strcasecmp(getIBuf(), "GO") == 0)) {
+          addInC();
         } else {
           int f = -1;
 
           for (int i = 0; i < COMMAND_LIST_SIZE; i++) {
-            if (strcasecmp(ibuf, COMMAND_LIST[i]) == 0) {
+            if (strcasecmp(getIBuf(), COMMAND_LIST[i]) == 0) {
               f = FIRST_COMMAND + i;
-              obuf[p++] = f;
+              addOutCh(f);
               break;
             }
           }
 
           if (f < 0) {
-            for (int i = 0; i < b; i++) {
-              obuf[p++] = ibuf[i];
-            }
+            copyInToOut();
           }
 
           if (c == EOF) {
             break;
           }
 
-          clearBuf(ibuf);
-          b = 0;
+          clearIBuf();
 
-          ungetc(c, fin);
+          ungetC();
 
           if (f == COMMAND_CODE_BIN) {
             isBinNumber = 1;
@@ -371,57 +349,41 @@ int parseFile(FILE *fin, char *obuf, char *ibuf)
 
     // line counting
     if ('\n' == c) {
-      l++;
-      x = 1;
+      line++;
+      column = 1;
     } else {
-      x++;
+      column++;
     }
   } while (c != EOF);
 
-  if (r >= 0) {
-    obuf[p++] = 0x0D;
-    n = p - r - 2;
-    obuf[r++] = n & 0xFF;
-    obuf[r++] = (n / 0x100) & 0xFF;
-  }
+  writeLineLength();
 
-  return p;
+  return getLength();
 }
 
 void process(char *name, FILE *fin, FILE *fout)
 {
   int result;
-  char *obuf = malloc(OUT_BUFFER_SIZE + 10), *ibuf;
 
-  if (NULL == obuf) {
+  if (!initBufs(fin)) {
     fputs(errMem, stderr);
     return;
   }
 
-  ibuf = malloc(IN_BUFFER_SIZE);
-
-  if (NULL == ibuf) {
-    free(obuf);
-    fputs(errMem, stderr);
-    return;
-  }
-
-  result = parseFile(fin, obuf, ibuf);
-
-  free(ibuf);
+  result = parseFile();
 
   if (result >= 0) {
-    writeFile(result, name, obuf, fout);
+    writeFile(result, name, getOBuf(), fout);
   }
 
-  free(obuf);
+  freeBufs();
 }
 
-int main(int ac, char **argv)
+int main(int argc, char **argv)
 {
   FILE *fin, *fout;
 
-  switch (ac) {
+  switch (argc) {
     case 2:
       process(argv[1], stdin, stdout);
       break;
