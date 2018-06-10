@@ -114,3 +114,8 @@ int getLength(void)
 {
   return p;
 }
+
+int iBufIs(const char *tstStr)
+{
+  return strcasecmp(ibuf, tstStr) == 0;
+}

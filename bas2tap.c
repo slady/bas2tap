@@ -306,13 +306,14 @@ int parseFile(void)
       break;
 
       case READING_COMMAND:
-        if (isalpha(c) || (c == ' ' && strcasecmp(getIBuf(), "GO") == 0)) {
+        if (isalpha(c) || c == '#' || c == '$'
+            || (c == ' ' && (iBufIs("GO") || iBufIs("DEF") || iBufIs("OPEN") || iBufIs("CLOSE")))) {
           addInC();
         } else {
           int f = -1;
 
           for (int i = 0; i < COMMAND_LIST_SIZE; i++) {
-            if (strcasecmp(getIBuf(), COMMAND_LIST[i]) == 0) {
+            if (iBufIs(COMMAND_LIST[i])) {
               f = FIRST_COMMAND + i;
               addOutCh(f);
               break;

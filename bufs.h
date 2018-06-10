@@ -29,4 +29,6 @@ void writeLineLength(void);
 
 int getLength(void);
 
+int iBufIs(const char *tstStr);
+
 #endif
