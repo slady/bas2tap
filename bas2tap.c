@@ -118,15 +118,13 @@ int parseFile(void)
         break;
 
       case NEXT_LINE_START:
-        if (isdigit(c) || c == ';') {
+        if (isdigit(c)) {
           writeLineLength();
 
-          if (isdigit(c)) {
             s = LINE_NUMBER;
             addInC();
-          } else if (';' == c) {
-            s = SINGLE_LINE_COMMENT;
-          }
+        } else if (';' == c) {
+          s = SINGLE_LINE_COMMENT;
         } else if (isalpha(c)) {
           s = READING_COMMAND;
           addInC();
